@@ -4,13 +4,13 @@ Wraith Flight Trainer is a standalone desktop tool for examining joystick input 
 
 ## Install and run
 
-Use Python 3.12 or newer. Python 3.12 is the version used for the Phase 1 verification.
+Clone or download the full repository and extract it before running `main.py`. Use Python 3.12 or newer. Python 3.12 is the version used for the Phase 1 verification.
 
 On Windows, open PowerShell in the repository:
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pip install .
 .\.venv\Scripts\python.exe main.py
 ```
 
@@ -18,11 +18,11 @@ On Linux or macOS:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pip install .
 .venv/bin/python main.py
 ```
 
-With the virtual environment active, `wraith-trainer` also launches the app. Add `--simulate` to start with the virtual stick, `--sample-rate 120` to set the requested poll rate (30–240 Hz), or `--export-dir recordings` to select a local export folder. Use F11 or `--fullscreen` for fullscreen.
+Use the same interpreter for installation and launch. If you see a missing-module error when running from an IDE, select the repository's `.venv` interpreter. With the virtual environment active, `wraith-trainer` also launches the app. Add `--simulate` to start with the virtual stick, `--sample-rate 120` to set the requested poll rate (30–240 Hz), or `--export-dir recordings` to select a local export folder. Use F11 or `--fullscreen` for fullscreen.
 
 ## Run a diagnostic
 
@@ -79,6 +79,7 @@ A missing metric means there were too few samples or no qualifying event. JSON i
 Run these commands with the virtual environment active:
 
 ```sh
+python -m pip install -e '.[dev]'
 python -m pytest
 ruff check .
 ruff format --check .

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed `main.py` to find trainer sources in a fresh checkout and show setup instructions when dependencies are missing.
+
 ## 0.1.0
 
 - Added the Wraith Flight Trainer desktop diagnostics dashboard.
