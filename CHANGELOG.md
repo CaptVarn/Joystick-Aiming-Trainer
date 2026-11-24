@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
+- Added rotational aiming with a fixed reticle and four training drills.
+- Added configurable targets, seven tracking paths, optional button confirmation, and live round scoring.
+- Reused diagnostics mapping, calibration, response curves, and simulated input during training.
 - Fixed `main.py` to find trainer sources in a fresh checkout and show setup instructions when dependencies are missing.
 
 ## 0.1.0

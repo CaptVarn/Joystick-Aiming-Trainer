@@ -1,6 +1,6 @@
 # Wraith Flight Trainer
 
-Wraith Flight Trainer is a standalone desktop tool for examining joystick input used in Star Citizen aiming practice. Phase 1 provides joystick diagnostics, calibration, response tuning, and local recording. The trainer operates independently of Star Citizen.
+Wraith Flight Trainer is a standalone desktop tool for Star Citizen joystick aiming practice. It includes joystick diagnostics, calibration, response tuning, local diagnostic recording, and four rotational aiming drills. The trainer operates independently of Star Citizen.
 
 ## Install and run
 
@@ -34,6 +34,32 @@ If the traceback goes through Pygame and `pkg_resources`, an older version of se
 ```
 
 If you installed from a GitHub ZIP, get source updates by downloading and extracting a new ZIP to a separate folder. Create a new virtual environment there using the Windows install steps above.
+
+## Precision training
+
+1. In **Diagnostics**, select your stick, then map and center **Pitch** and **Yaw**. On a stick you have already checked, set the response curve and deadzone you want to practice with. The simulator comes mapped and works with **A / D** (yaw left/right), **W / S** (pitch down/up), and **Shift** (fine input).
+2. Click **Training**. Select a drill and adjust its settings. If a required mapping is missing, the setup screen tells you which one to add. Switch between training and diagnostics in the same run to keep your device's mappings and response settings.
+3. Click **Start round**. The reticle stays at the center as the view turns. Keep the target inside the reticle tolerance until the hold completes, or stay with the moving target for the full tracking round. The red edge marker points toward a target outside the view.
+4. Review the scores after time expires, the target goal is reached, or you end the round. Space starts or ends a round, and Escape returns to diagnostics. Losing focus or disconnecting the active stick ends the round and leaves its current scores visible.
+
+| Drill | What to practice | Controls |
+| --- | --- | --- |
+| Micro-correction | Acquire and hold small, stationary targets near your current aim. | Round length, radius, displacement, hold, and interval. |
+| Continuous tracking | Follow a moving target. | Horizontal, vertical, diagonal, circle, sinusoidal, figure eight, or smooth random path. Set angular radius, path displacement, speed limit, and speed ramp. |
+| Axis isolation | Practice pitch alone, yaw alone, or both. Map both to measure input on the locked axis. | Same target settings as micro-correction, plus active axes. |
+| Target acquisition | Acquire a fixed number of stationary targets at wider offsets. | Target count and optional joystick-button confirmation. Press the selected button after the HUD prompts you. In the simulator, buttons 0–3 are Z, X, C, and V. |
+
+The Phase 2 camera uses a generic 45°/s maximum per axis, a fixed 38° vertical field of view, and a 120 Hz simulation step. The input loop feeds the same processed signals used by diagnostics, while the render loop displays the latest simulation state. Centering the stick stops rotation immediately in this model. For tracking, the speed setting bounds target angular speed, and the ramp changes how quickly the underlying path speed reaches that limit.
+
+### Training scoring
+
+- **On target** is the fraction of scored ticks within the target's angular radius. Time on target is the number of those ticks divided by 120. Gaps between targets are excluded.
+- **Angular error** is the angle between camera forward and the direction to the target. The HUD reports current, mean, root-mean-square, and maximum error in degrees.
+- **Overshoots** count horizontal or vertical crossings of the target center that leave a band of one-quarter of the target radius, with a 0.12° minimum. **Corrections** count processed input direction reversals that cross the ±0.04 command thresholds on an active axis.
+- **Acquisition** time starts at target appearance and ends after the continuous hold and any required confirmation. **Settling** time runs from the first entry into tolerance to the start of the successful hold.
+- **Off-axis input RMS** measures the unused axis's processed input during single-axis practice. It is available when that axis is mapped. **Input change RMS** in tracking measures the RMS per-second change of the two-axis processed command vector on simulation ticks.
+
+Training scores are displayed for the current round. Diagnostic CSV and JSON recording remains available in **Diagnostics**. Training history, roll, inertia, and configurable ship profiles are later-phase work.
 
 ## Run a diagnostic
 
@@ -96,4 +122,4 @@ ruff check .
 ruff format --check .
 ```
 
-The Phase 1 checkpoint covers simulated desktop startup, recording and export, mocked hotplug and disconnect, calibration, response math, and diagnostic calculations. Physical hardware verification is pending. Flight training, ship physics, persistent session history, and Windows executable packaging are later phases.
+Automated checks cover simulated desktop startup, recording and export, mocked hotplug and disconnect, calibration, response math, and diagnostic calculations. They also cover camera projection, fixed-step scoring, tracking path speed, isolation, hold timing, and button confirmation. To check Phase 2 on physical hardware, open **Training** with your VKB mappings, verify rotation direction in Axis isolation, then complete a Micro-correction hold and follow a moving target in Continuous tracking.

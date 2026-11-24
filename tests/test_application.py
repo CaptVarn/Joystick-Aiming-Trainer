@@ -7,6 +7,8 @@ import pytest
 
 from wraith_trainer.application import Application, advance_deadline, main
 from wraith_trainer.joystick import SIMULATOR
+from wraith_trainer.training import Mode
+from wraith_trainer.training_view import FIELD
 
 
 @pytest.fixture
@@ -148,3 +150,35 @@ def test_entry_point_draws_and_exits(sdl, monkeypatch, tmp_path):
 def test_scheduler_skips_missed_poll_slots():
     assert advance_deadline(10, 10, 10) == 20
     assert advance_deadline(10, 35, 10) == 40
+
+
+def test_training_uses_simulated_stick_without_disturbing_diagnostics(sdl, tmp_path, monkeypatch):
+    keys = defaultdict(int)
+    monkeypatch.setattr(pygame.key, "get_pressed", lambda: keys)
+    app = Application(120, tmp_path, simulate=True)
+    try:
+        now = perf_counter_ns()
+        app.poll_input(now)
+        app.draw()
+        click(app, "training", now)
+        click(app, "mode_next", now)
+        assert app.training.mode == Mode.TRACKING
+        click(app, "start_training", now)
+        assert app.session is not None
+        center = app.dashboard.canvas.get_at(FIELD.center)
+        keys[pygame.K_d] = 1
+        for index in range(1, 121):
+            app.poll_input(now + index * 8_333_334)
+        app.draw()
+        assert app.session.camera.yaw > 10
+        assert app.session.score.valid == 120
+        assert app.dashboard.canvas.get_at(FIELD.center) == center
+        app.event(pygame.event.Event(pygame.WINDOWFOCUSLOST), now + 1_004_000_000)
+        assert app.session.finish_reason == "Window lost focus"
+        app.draw()
+        click(app, "diagnostics", now + 1_005_000_000)
+        assert app.session is None
+        assert app.state.channels[1].index == 1
+        assert "record" in app.dashboard.hitboxes
+    finally:
+        app.executor.shutdown()

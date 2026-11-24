@@ -110,15 +110,14 @@ class Dashboard:
         demo: bool,
         exporting: bool,
     ) -> None:
-        width, height = screen.get_size()
-        scale = min(width / SIZE[0], height / SIZE[1])
-        size = (max(1, int(SIZE[0] * scale)), max(1, int(SIZE[1] * scale)))
-        self.viewport = pygame.Rect((0, 0), size)
-        self.viewport.center = screen.get_rect().center
-        self.mouse = self.position(pygame.mouse.get_pos())
-        self.hitboxes.clear()
-        self.canvas.fill(BACKGROUND)
+        self.begin(screen)
         self.header(state, more_devices, demo)
+        self.button(
+            "training",
+            "Training >",
+            (560, 42, 145, 34),
+            enabled=not (state.capture or state.learning or state.travel),
+        )
         self.capture_bar(state, exporting)
         self.axes_panel(state, selected, axes_page)
         self.buttons_panel(state, buttons_page)
@@ -128,6 +127,20 @@ class Dashboard:
         self.line((32, 784), (1248, 784))
         self.clip_text(state.notice, 32, 800, 900, MUTED)
         self.right("SPACE  Record / stop     F11  Fullscreen", 1248, 803)
+        self.present(screen)
+
+    def begin(self, screen: pygame.Surface) -> None:
+        width, height = screen.get_size()
+        scale = min(width / SIZE[0], height / SIZE[1])
+        size = (max(1, int(SIZE[0] * scale)), max(1, int(SIZE[1] * scale)))
+        self.viewport = pygame.Rect((0, 0), size)
+        self.viewport.center = screen.get_rect().center
+        self.mouse = self.position(pygame.mouse.get_pos())
+        self.hitboxes.clear()
+        self.canvas.fill(BACKGROUND)
+
+    def present(self, screen: pygame.Surface) -> None:
+        size = self.viewport.size
         screen.fill(BACKGROUND)
         screen.blit(
             self.canvas if size == SIZE else pygame.transform.smoothscale(self.canvas, size),

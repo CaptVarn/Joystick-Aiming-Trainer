@@ -3,7 +3,7 @@
 import argparse
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from time import perf_counter_ns
 
@@ -13,7 +13,9 @@ from .axis import Response
 from .dashboard import RESPONSE_CONTROLS, SIZE, Dashboard
 from .diagnostics import Diagnostics
 from .joystick import SIMULATOR, JoystickManager
-from .recording import TESTS, export_capture
+from .recording import CHANNELS, TESTS, Sample, export_capture
+from .training import Session, required_axes
+from .training_view import TrainingView
 
 LOG = logging.getLogger(__name__)
 RENDER_HZ = 60
@@ -41,6 +43,9 @@ class Application:
         device = SIMULATOR if simulate else next(iter(self.manager.hardware), SIMULATOR)
         self.state = Diagnostics(rate, self.manager.devices[device], perf_counter_ns())
         self.dashboard = Dashboard()
+        self.training = TrainingView(self.dashboard)
+        self.in_training = False
+        self.session: Session | None = None
         self.selected = 1
         self.axes_page = self.buttons_page = 0
         self.output = output
@@ -62,6 +67,7 @@ class Application:
         self.manager.remove(instance)
         self.state.profiles.pop(instance, None)
         if self.state.device.instance_id == instance and device is not None:
+            self.finish_training(now_ns, f"{device.name} disconnected")
             was_recording = self.state.capture is not None
             self.state.stop_recording("device disconnected")
             result = self.state.notice if was_recording else ""
@@ -77,6 +83,8 @@ class Application:
             self.state.start_recording(now_ns, simulated_demo=self.demo)
 
     def poll_input(self, now_ns: int) -> None:
+        if self.session:
+            self.session.advance(now_ns)
         instance = self.state.device.instance_id
         try:
             frame = self.manager.read(
@@ -89,10 +97,56 @@ class Application:
             self.disconnect(instance, now_ns)
         else:
             self.state.sample(frame, now_ns)
+            self.update_training_input(self.state.latest)
+
+    def training_unavailable(self) -> str:
+        axes = required_axes(self.training.mode, self.training.config.isolation)
+        missing = [CHANNELS[axis] for axis in axes if self.state.channels[axis].index is None]
+        if missing:
+            return f"Map {' and '.join(missing)} in Diagnostics."
+        return "" if self.state.latest else "Waiting for input from the selected device."
+
+    def update_training_input(self, sample: Sample | None) -> None:
+        if self.session is None or self.session.finish_reason or sample is None:
+            return
+        pitch, yaw, _ = sample.processed
+        trigger = self.session.settings.trigger
+        pressed = trigger is not None and trigger < len(sample.buttons) and sample.buttons[trigger]
+        self.session.input(pitch, yaw, pressed)
+
+    def finish_training(self, now_ns: int, reason: str) -> None:
+        if self.session:
+            self.session.advance(now_ns)
+            self.session.finish(reason)
+
+    def training_action(self, action: str, now_ns: int) -> None:
+        if action == "diagnostics":
+            self.in_training = False
+            self.session = None
+        elif action == "start_training" and self.session is None:
+            if self.training_unavailable():
+                return
+            settings = self.training.config
+            if settings.trigger is not None and settings.trigger >= self.state.device.buttons:
+                settings = replace(settings, trigger=None)
+            self.session = Session(self.training.mode, settings, now_ns)
+            self.update_training_input(self.state.latest)
+        elif action == "stop_training":
+            self.finish_training(now_ns, "Round ended")
+        elif action == "training_setup" and self.session and self.session.finish_reason:
+            self.session = None
+        elif self.session is None and action.endswith(("_next", "_previous")):
+            self.training.adjust(action, self.state.device.buttons)
 
     def handle_action(self, action: str, now_ns: int) -> None:
         state = self.state
-        if action == "record":
+        if self.in_training:
+            self.training_action(action, now_ns)
+        elif action == "training":
+            if not (state.capture or state.learning or state.travel):
+                self.in_training = True
+                self.demo = False
+        elif action == "record":
             self.record(now_ns)
         elif action == "export" and state.completed and self.export is None and not state.capture:
             capture, summary = state.completed
@@ -190,6 +244,8 @@ class Application:
                 self.state.notice = "Could not open the new joystick. Reconnect it and try again."
         elif event.type == pygame.JOYDEVICEREMOVED:
             self.disconnect(event.instance_id, now_ns)
+        elif event.type == pygame.WINDOWFOCUSLOST:
+            self.finish_training(now_ns, "Window lost focus")
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_F11:
                 if not self.fullscreen:
@@ -197,9 +253,18 @@ class Application:
                 self.fullscreen = not self.fullscreen
                 self.screen = self.open_window()
             elif event.key == pygame.K_SPACE:
-                self.record(now_ns)
+                if not self.in_training:
+                    self.record(now_ns)
+                elif self.session is None:
+                    self.training_action("start_training", now_ns)
+                elif self.session.finish_reason:
+                    self.training_action("training_setup", now_ns)
+                else:
+                    self.training_action("stop_training", now_ns)
             elif event.key == pygame.K_ESCAPE:
-                if self.state.learning:
+                if self.in_training:
+                    self.training_action("diagnostics", now_ns)
+                elif self.state.learning:
                     self.state.learn(self.selected)
                 elif self.state.travel:
                     self.state.travel = None
@@ -210,16 +275,19 @@ class Application:
         return True
 
     def draw(self) -> None:
-        self.dashboard.draw(
-            self.screen,
-            self.state,
-            selected=self.selected,
-            axes_page=self.axes_page,
-            buttons_page=self.buttons_page,
-            more_devices=len(self.manager.devices) > 1,
-            demo=self.demo and self.state.device.instance_id == SIMULATOR,
-            exporting=self.export is not None,
-        )
+        if self.in_training:
+            self.training.draw(self.screen, self.state, self.session, self.training_unavailable())
+        else:
+            self.dashboard.draw(
+                self.screen,
+                self.state,
+                selected=self.selected,
+                axes_page=self.axes_page,
+                buttons_page=self.buttons_page,
+                more_devices=len(self.manager.devices) > 1,
+                demo=self.demo and self.state.device.instance_id == SIMULATOR,
+                exporting=self.export is not None,
+            )
         pygame.display.flip()
 
     def run(self) -> None:
@@ -241,6 +309,8 @@ class Application:
                 if now_ns >= sample_due:
                     self.poll_input(now_ns)
                     sample_due = advance_deadline(sample_due, now_ns, 1_000_000_000 // rate)
+                elif self.session:
+                    self.session.advance(now_ns)
                 if now_ns >= render_due:
                     self.finish_export()
                     self.draw()
@@ -251,7 +321,7 @@ class Application:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Wraith Flight Trainer joystick diagnostics")
+    parser = argparse.ArgumentParser(description="Wraith Flight Trainer diagnostics and training")
     parser.add_argument("--simulate", action="store_true", help="start with the simulated joystick")
     parser.add_argument("--fullscreen", action="store_true", help="launch fullscreen")
     parser.add_argument(
