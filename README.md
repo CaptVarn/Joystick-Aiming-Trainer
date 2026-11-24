@@ -24,6 +24,17 @@ python3 -m venv .venv
 
 Use the same interpreter for installation and launch. If you see a missing-module error when running from an IDE, select the repository's `.venv` interpreter. With the virtual environment active, `wraith-trainer` also launches the app. Add `--simulate` to start with the virtual stick, `--sample-rate 120` to set the requested poll rate (30–240 Hz), or `--export-dir recordings` to select a local export folder. Use F11 or `--fullscreen` for fullscreen.
 
+### Fix a `pkgutil.ImpImporter` startup error on Windows
+
+If the traceback goes through Pygame and `pkg_resources`, an older version of setuptools in your virtual environment is trying to use an API that Python 3.12 removed. From PowerShell in the repository folder, upgrade setuptools in that environment and rerun the app:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --upgrade "setuptools>=70"
+.\.venv\Scripts\python.exe main.py --simulate
+```
+
+If you installed from a GitHub ZIP, get source updates by downloading and extracting a new ZIP to a separate folder. Create a new virtual environment there using the Windows install steps above.
+
 ## Run a diagnostic
 
 1. Connect a joystick before launching or while the dashboard is open. Use the arrows in **Input Device** to switch between devices. The physical input panel shows the SDL GUID, input counts, and the axis values reported by SDL.
