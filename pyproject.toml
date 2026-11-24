@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wraith-flight-trainer"
+version = "0.1.0"
+description = "Standalone joystick diagnostics for rotational aiming practice"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["pygame>=2.6.1,<3", "numpy>=2,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+
+[project.scripts]
+wraith-trainer = "wraith_trainer.application:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
