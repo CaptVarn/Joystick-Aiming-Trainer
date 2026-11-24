@@ -14,11 +14,13 @@ from .dashboard import RESPONSE_CONTROLS, SIZE, Dashboard
 from .diagnostics import Diagnostics
 from .joystick import SIMULATOR, JoystickManager
 from .recording import CHANNELS, TESTS, Sample, export_capture
+from .ship_profiles import ShipProfile, load_profile
 from .training import Session, required_axes
 from .training_view import TrainingView
 
 LOG = logging.getLogger(__name__)
 RENDER_HZ = 60
+DEFAULT_PROFILE_DIR = Path.home() / ".wraith-flight-trainer" / "profiles"
 
 
 def advance_deadline(deadline: int, now: int, interval: int) -> int:
@@ -34,6 +36,8 @@ class Application:
         *,
         simulate: bool = False,
         fullscreen: bool = False,
+        profile_dir: Path = DEFAULT_PROFILE_DIR,
+        profile: ShipProfile | None = None,
     ) -> None:
         self.window_size = SIZE
         self.fullscreen = fullscreen
@@ -43,7 +47,7 @@ class Application:
         device = SIMULATOR if simulate else next(iter(self.manager.hardware), SIMULATOR)
         self.state = Diagnostics(rate, self.manager.devices[device], perf_counter_ns())
         self.dashboard = Dashboard()
-        self.training = TrainingView(self.dashboard)
+        self.training = TrainingView(self.dashboard, profile_dir, profile)
         self.in_training = False
         self.session: Session | None = None
         self.selected = 1
@@ -100,7 +104,11 @@ class Application:
             self.update_training_input(self.state.latest)
 
     def training_unavailable(self) -> str:
-        axes = required_axes(self.training.mode, self.training.config.isolation)
+        axes = required_axes(
+            self.training.mode,
+            self.training.config.isolation,
+            self.training.profiles.roll_enabled,
+        )
         missing = [CHANNELS[axis] for axis in axes if self.state.channels[axis].index is None]
         if missing:
             return f"Map {' and '.join(missing)} in Diagnostics."
@@ -109,10 +117,10 @@ class Application:
     def update_training_input(self, sample: Sample | None) -> None:
         if self.session is None or self.session.finish_reason or sample is None:
             return
-        pitch, yaw, _ = sample.processed
+        pitch, yaw, roll = sample.processed
         trigger = self.session.settings.trigger
         pressed = trigger is not None and trigger < len(sample.buttons) and sample.buttons[trigger]
-        self.session.input(pitch, yaw, pressed)
+        self.session.input(pitch, yaw, pressed, roll=roll or 0.0)
 
     def finish_training(self, now_ns: int, reason: str) -> None:
         if self.session:
@@ -122,14 +130,27 @@ class Application:
     def training_action(self, action: str, now_ns: int) -> None:
         if action == "diagnostics":
             self.in_training = False
+            self.training.profiles_open = False
             self.session = None
+        elif self.training.profiles_open:
+            if action == "profile_back":
+                self.training.profiles_open = False
+            elif action.startswith("ship_"):
+                self.training.profiles.action(action)
+        elif action == "profile_open" and self.session is None:
+            self.training.profiles.refresh()
+            self.training.profiles_open = True
         elif action == "start_training" and self.session is None:
             if self.training_unavailable():
                 return
-            settings = self.training.config
+            settings = replace(
+                self.training.config, roll_enabled=self.training.profiles.roll_enabled
+            )
             if settings.trigger is not None and settings.trigger >= self.state.device.buttons:
                 settings = replace(settings, trigger=None)
-            self.session = Session(self.training.mode, settings, now_ns)
+            self.session = Session(
+                self.training.mode, settings, now_ns, profile=self.training.profiles.profile
+            )
             self.update_training_input(self.state.latest)
         elif action == "stop_training":
             self.finish_training(now_ns, "Round ended")
@@ -263,7 +284,8 @@ class Application:
                     self.training_action("stop_training", now_ns)
             elif event.key == pygame.K_ESCAPE:
                 if self.in_training:
-                    self.training_action("diagnostics", now_ns)
+                    action = "profile_back" if self.training.profiles_open else "diagnostics"
+                    self.training_action(action, now_ns)
                 elif self.state.learning:
                     self.state.learn(self.selected)
                 elif self.state.travel:
@@ -328,9 +350,15 @@ def main(argv: list[str] | None = None) -> int:
         "--sample-rate", default=120, type=int, metavar="HZ", help="requested rate (30–240 Hz)"
     )
     parser.add_argument("--export-dir", default=Path("diagnostic_exports"), type=Path)
+    parser.add_argument("--profile-dir", default=DEFAULT_PROFILE_DIR, type=Path)
+    parser.add_argument("--profile", type=Path, help="start with the specified ship profile JSON")
     args = parser.parse_args(argv)
     if not 30 <= args.sample_rate <= 240:
         parser.error("--sample-rate must be between 30 and 240 Hz")
+    try:
+        profile = load_profile(args.profile.expanduser()) if args.profile else None
+    except (OSError, ValueError) as error:
+        parser.error(f"Could not load ship profile. {error}")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     pygame.display.init()
@@ -342,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
             args.export_dir.expanduser().resolve(),
             simulate=args.simulate,
             fullscreen=args.fullscreen,
+            profile_dir=args.profile_dir.expanduser().resolve(),
+            profile=profile,
         ).run()
     finally:
         pygame.quit()

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "name": "Anvil F8C Lightning",
+  "mode": "Assisted",
+  "fov": 38,
+  "pitch": {
+    "rate": 38.0,
+    "acceleration": 120,
+    "braking": 150
+  },
+  "yaw": {
+    "rate": 35.0,
+    "acceleration": 120,
+    "braking": 150
+  },
+  "roll": {
+    "rate": 140.0,
+    "acceleration": 180,
+    "braking": 220
+  },
+  "source": "https://www.spviewer.eu/performance?ship=anvl_lightning_f8c",
+  "source_date": "2026-04-27",
+  "notes": "Unboosted rates only. Other fields are defaults."
+}

@@ -49,7 +49,28 @@ If you installed from a GitHub ZIP, get source updates by downloading and extrac
 | Axis isolation | Practice pitch alone, yaw alone, or both. Map both to measure input on the locked axis. | Same target settings as micro-correction, plus active axes. |
 | Target acquisition | Acquire a fixed number of stationary targets at wider offsets. | Target count and optional joystick-button confirmation. Press the selected button after the HUD prompts you. In the simulator, buttons 0–3 are Z, X, C, and V. |
 
-The Phase 2 camera uses a generic 45°/s maximum per axis, a fixed 38° vertical field of view, and a 120 Hz simulation step. The input loop feeds the same processed signals used by diagnostics, while the render loop displays the latest simulation state. Centering the stick stops rotation immediately in this model. For tracking, the speed setting bounds target angular speed, and the ramp changes how quickly the underlying path speed reaches that limit.
+The camera uses a 120 Hz simulation step. The input loop feeds the same processed signals used by diagnostics, while the render loop displays the latest simulation state. For tracking, the speed setting bounds target angular speed, and the ramp changes how quickly the underlying path speed reaches that limit.
+
+### Flight profiles
+
+Open **Training → Flight profiles** before starting a round. Browse the presets or edit the model, rates, and vertical field of view. **Generic assisted** is the default. It accelerates toward the commanded rate and continues rotating briefly after you center the stick, while it brakes to zero. **Phase 2 direct** reproduces instant rate changes with the previous 45°/s pitch and yaw caps and 38° vertical field of view.
+
+- Each axis has a rate cap in degrees per second and acceleration and braking limits in degrees per second squared. When you reverse, the model brakes to zero before accelerating in the new direction.
+- The command exponent shapes the processed stick input before it sets the desired rate. An exponent of 1 preserves the Diagnostics response. The optional acceleration curve softens the acceleration available for partial deflections. A value of 1 uses the same acceleration limit across the axis.
+- Enable **Roll** if you have mapped it in Diagnostics. Roll banks the view during drills with both pitch and yaw active. Pitch-only and yaw-only drills keep the other axes locked. Angular error measures the direction to the target and is independent of bank and FOV.
+- **Save JSON** creates a separate file in the displayed profile folder. On Windows, the default is `%USERPROFILE%\.wraith-flight-trainer\profiles`. To import, place a JSON profile in that folder, select **Refresh**, browse to the file, and select **Load JSON**. Use `--profile-dir` to choose a different folder or `--profile` to start with a particular JSON file.
+- For a custom profile, edit a preset and export it, then change the `name` and any source fields in the JSON. Schema 1 uses `rate`, `acceleration`, and `braking` under `pitch`, `yaw`, and `roll`. `acceleration_curve` and `command_exponent` are optional and default to 1.
+
+#### Ship data
+
+The four ship presets use the unboosted **Pitch / Yaw / Roll** values from the April 27, 2026 SPViewer snapshot. Each value also matches the corresponding Flight Controller entry in that snapshot. The snapshot does not identify a game patch. Acceleration, braking, field of view, and response shaping use trainer defaults. [Pinned SPViewer snapshot](https://github.com/TheRealWiseWolfHolo/StarCitizen-Info/blob/7bc6c0652cd0e8736c1b1494317a64610220ca6d/docs/ship-details.json)
+
+| Ship | Pitch | Yaw | Roll | Source |
+| --- | ---: | ---: | ---: | --- |
+| Aegis Gladius | 68°/s | 52°/s | 200°/s | [SPViewer](https://www.spviewer.eu/performance?ship=aegs_gladius) |
+| Anvil Arrow | 75°/s | 57°/s | 205°/s | [SPViewer](https://www.spviewer.eu/performance?ship=anvl_arrow) |
+| Anvil F8C Lightning | 38°/s | 35°/s | 140°/s | [SPViewer](https://www.spviewer.eu/performance?ship=anvl_lightning_f8c) |
+| Anvil F7C-M Super Hornet Mk I | 53°/s | 42°/s | 145°/s | [SPViewer](https://www.spviewer.eu/performance?ship=anvl_hornet_f7cm) |
 
 ### Training scoring
 
@@ -59,7 +80,7 @@ The Phase 2 camera uses a generic 45°/s maximum per axis, a fixed 38° vertical
 - **Acquisition** time starts at target appearance and ends after the continuous hold and any required confirmation. **Settling** time runs from the first entry into tolerance to the start of the successful hold.
 - **Off-axis input RMS** measures the unused axis's processed input during single-axis practice. It is available when that axis is mapped. **Input change RMS** in tracking measures the RMS per-second change of the two-axis processed command vector on simulation ticks.
 
-Training scores are displayed for the current round. Diagnostic CSV and JSON recording remains available in **Diagnostics**. Training history, roll, inertia, and configurable ship profiles are later-phase work.
+Training scores are displayed for the current round. Diagnostic CSV and JSON recording remains available in **Diagnostics**. Persistent training history is later-phase work.
 
 ## Run a diagnostic
 
@@ -123,3 +144,5 @@ ruff format --check .
 ```
 
 Automated checks cover simulated desktop startup, recording and export, mocked hotplug and disconnect, calibration, response math, and diagnostic calculations. They also cover camera projection, fixed-step scoring, tracking path speed, isolation, hold timing, and button confirmation. To check Phase 2 on physical hardware, open **Training** with your VKB mappings, verify rotation direction in Axis isolation, then complete a Micro-correction hold and follow a moving target in Continuous tracking.
+
+To check Phase 3 on the VKB, keep the drill and Diagnostics settings fixed. Run a yaw-only round with **Phase 2 direct**, then repeat with **Generic assisted** and compare stopping behavior. With assisted flight, the yaw rate shown in the HUD should taper to zero after centering.

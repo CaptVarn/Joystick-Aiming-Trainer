@@ -182,3 +182,32 @@ def test_training_uses_simulated_stick_without_disturbing_diagnostics(sdl, tmp_p
         assert "record" in app.dashboard.hitboxes
     finally:
         app.executor.shutdown()
+
+
+def test_profile_editor_saves_loads_and_uses_profile_in_a_round(sdl, tmp_path):
+    app = Application(120, tmp_path, simulate=True, profile_dir=tmp_path / "profiles")
+    try:
+        now = perf_counter_ns()
+        app.poll_input(now)
+        app.draw()
+        click(app, "training", now)
+        click(app, "profile_open", now)
+        click(app, "ship_preset_up", now)
+        click(app, "ship_preset_up", now)
+        assert app.training.profiles.profile.name == "Aegis Gladius"
+        click(app, "ship_fov_up", now)
+        click(app, "ship_yaw.braking_up", now)
+        click(app, "ship_roll", now)
+        click(app, "ship_save", now)
+        assert len(list((tmp_path / "profiles").glob("*.json"))) == 1
+        expected = app.training.profiles.profile
+        assert (expected.fov, expected.yaw.braking) == (40, 160)
+        click(app, "ship_preset_up", now)
+        assert app.training.profiles.profile != expected
+        click(app, "ship_load", now)
+        click(app, "profile_back", now)
+        click(app, "start_training", now)
+        assert app.session.camera.profile == expected
+        assert app.session.axes == (0, 1, 2)
+    finally:
+        app.executor.shutdown()

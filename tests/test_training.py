@@ -3,33 +3,23 @@ from math import acos, degrees
 
 import pytest
 
-from wraith_trainer.training import (
-    RATE,
-    TICK,
-    Camera,
-    Isolation,
-    Mode,
-    Pattern,
-    Session,
-    Settings,
-    bearing,
-    dot,
-    focal_length,
-)
+from wraith_trainer.flight import Camera, bearing, dot, focal_length
+from wraith_trainer.ship_profiles import DIRECT_PROFILE
+from wraith_trainer.training import TICK, Isolation, Mode, Pattern, Session, Settings
 
 
 def test_rotation_projects_a_stationary_target_relative_to_fixed_center():
-    camera = Camera()
+    camera = Camera(DIRECT_PROFILE)
     target = bearing(5, 0)
     focal = focal_length(576)
     before = camera.projection(target, focal)
     assert before[0] > 0
     for _ in range(24):
-        camera.rotate(0, 0.5)
+        camera.rotate(0, 0.5, 0, TICK)
     assert camera.yaw == pytest.approx(4.5)
     after = camera.projection(target, focal)
     assert 0 < after[0] < before[0]
-    camera.rotate(0, 0)
+    camera.rotate(0, 0, 0, TICK)
     assert camera.projection(target, focal) == after
     assert camera.projection(bearing(180, 0), focal) is None
     assert camera.projection(bearing(camera.yaw, camera.pitch), focal) == pytest.approx((0, 0))
@@ -45,7 +35,7 @@ def test_time_progression_and_scoring_are_independent_of_update_cadence():
     for index in range(1, 101):
         fine.advance(index * 10_000_000)
     assert coarse.ticks == fine.ticks == 120
-    assert coarse.camera.yaw == fine.camera.yaw == pytest.approx(RATE * 0.25)
+    assert coarse.camera.yaw == fine.camera.yaw == pytest.approx(10.72265625)
     assert coarse.target.direction == fine.target.direction
     assert coarse.score == fine.score
     assert coarse.score.mean_error > 0
@@ -107,14 +97,14 @@ def test_trigger_confirmation_requires_a_new_press_after_hold():
 
 def test_yaw_isolation_tracks_off_axis_input_without_using_it_for_rotation():
     cfg = replace(Settings.defaults(Mode.ISOLATION), isolation=Isolation.YAW)
-    session = Session(Mode.ISOLATION, cfg, 0, seed=0)
+    session = Session(Mode.ISOLATION, cfg, 0, profile=DIRECT_PROFILE, seed=0)
     session.input(None, 0.25, False)
     session.step()
     assert session.score.interference_rms is None
     session.input(0.4, 0.25, False)
     session.advance(500_000_000)
     assert session.camera.pitch == 0
-    assert session.camera.yaw == pytest.approx(0.5 * RATE * 0.25)
+    assert session.camera.yaw == pytest.approx(0.5 * DIRECT_PROFILE.yaw.rate * 0.25)
     assert session.score.interference_rms == pytest.approx(0.4)
 
 

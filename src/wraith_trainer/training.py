@@ -2,15 +2,14 @@
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from math import acos, cos, degrees, radians, sin, sqrt, tan, tau
+from math import acos, cos, degrees, radians, sin, sqrt, tau
 from random import Random
+
+from .flight import PITCH_LIMIT, Camera, Vector, bearing
+from .ship_profiles import GENERIC_PROFILE, ShipProfile
 
 TICK_HZ = 120
 TICK = 1 / TICK_HZ
-RATE = 45.0  # Degrees per second at full processed input.
-PITCH_LIMIT = 85.0
-VERTICAL_FOV = 38.0
-Vector = tuple[float, float, float]
 
 
 class Mode(StrEnum):
@@ -48,40 +47,6 @@ PATH_RATE = {
 }
 
 
-def bearing(yaw: float, pitch: float) -> Vector:
-    y, p = radians(yaw), radians(pitch)
-    return sin(y) * cos(p), sin(p), cos(y) * cos(p)
-
-
-def dot(a: Vector, b: Vector) -> float:
-    return sum(x * y for x, y in zip(a, b, strict=True))
-
-
-@dataclass
-class Camera:
-    yaw: float = 0
-    pitch: float = 0
-
-    def rotate(self, pitch: float, yaw: float) -> None:
-        self.yaw = (self.yaw + yaw * RATE * TICK + 180) % 360 - 180
-        self.pitch = max(-PITCH_LIMIT, min(PITCH_LIMIT, self.pitch + pitch * RATE * TICK))
-
-    def coordinates(self, direction: Vector) -> Vector:
-        y, p = radians(self.yaw), radians(self.pitch)
-        forward = bearing(self.yaw, self.pitch)
-        right = (cos(y), 0.0, -sin(y))
-        up = (-sin(y) * sin(p), cos(p), -cos(y) * sin(p))
-        return dot(direction, right), dot(direction, up), dot(direction, forward)
-
-    def projection(self, direction: Vector, focal: float) -> tuple[float, float] | None:
-        x, y, z = self.coordinates(direction)
-        return (focal * x / z, -focal * y / z) if z > 0.01 else None
-
-
-def focal_length(height: int) -> float:
-    return height / (2 * tan(radians(VERTICAL_FOV / 2)))
-
-
 @dataclass(frozen=True)
 class Settings:
     duration: int = 30
@@ -95,6 +60,7 @@ class Settings:
     acceleration: float = 14.0
     isolation: Isolation = Isolation.BOTH
     trigger: int | None = None
+    roll_enabled: bool = False
 
     @classmethod
     def defaults(cls, mode: Mode) -> "Settings":
@@ -107,10 +73,10 @@ class Settings:
         return cls()
 
 
-def required_axes(mode: Mode, isolation: Isolation) -> tuple[int, ...]:
+def required_axes(mode: Mode, isolation: Isolation, roll_enabled: bool = False) -> tuple[int, ...]:
     if mode == Mode.ISOLATION and isolation != Isolation.BOTH:
         return (0,) if isolation == Isolation.PITCH else (1,)
-    return (0, 1)
+    return (0, 1, 2) if roll_enabled else (0, 1)
 
 
 @dataclass
@@ -166,15 +132,23 @@ class Score:
 
 
 class Session:
-    def __init__(self, mode: Mode, settings: Settings, start_ns: int, *, seed: int | None = None):
+    def __init__(
+        self,
+        mode: Mode,
+        settings: Settings,
+        start_ns: int,
+        *,
+        profile: ShipProfile = GENERIC_PROFILE,
+        seed: int | None = None,
+    ):
         self.mode = mode
         self.settings = settings
         self.start_ns = start_ns
         self.rng = Random(seed)
         self.random_phases = tuple(self.rng.uniform(0, tau) for _ in range(4))
-        self.camera = Camera()
+        self.camera = Camera(profile)
         self.score = Score()
-        self.axes = required_axes(mode, settings.isolation)
+        self.axes = required_axes(mode, settings.isolation, settings.roll_enabled)
         self.ticks = 0
         self.error: float | None = None
         self.inside = False
@@ -182,6 +156,7 @@ class Session:
         self.target = self.spawn_target()
         self.next_spawn = 0
         self.stick: tuple[float | None, float | None] = (None, None)
+        self.roll = 0.0
         self.previous_stick: tuple[float, float] | None = None
         self.last_command = [0, 0]
         self.trigger_down = False
@@ -200,8 +175,11 @@ class Session:
         if self.finish_reason is None:
             self.finish_reason = reason
 
-    def input(self, pitch: float | None, yaw: float | None, trigger: bool) -> None:
+    def input(
+        self, pitch: float | None, yaw: float | None, trigger: bool, *, roll: float = 0.0
+    ) -> None:
         self.stick = pitch, yaw
+        self.roll = roll
         if self.ready and not self.prime_trigger and trigger and not self.trigger_down:
             self.trigger_pending = True
         self.trigger_down = trigger
@@ -267,7 +245,10 @@ class Session:
         self.ticks += 1
         pitch, yaw = self.stick
         self.camera.rotate(
-            (pitch or 0.0) if 0 in self.axes else 0, (yaw or 0.0) if 1 in self.axes else 0
+            (pitch or 0.0) if 0 in self.axes else 0,
+            (yaw or 0.0) if 1 in self.axes else 0,
+            self.roll if 2 in self.axes else 0,
+            TICK,
         )
         if self.target is None and self.ticks >= self.next_spawn:
             self.target = self.spawn_target()
@@ -281,7 +262,7 @@ class Session:
             self.finish("Time complete")
 
     def measure(self, target: Target) -> None:
-        x, y, z = self.camera.coordinates(target.direction)
+        x, y, z = self.camera.coordinates(target.direction, banked=False)
         self.error = degrees(acos(max(-1.0, min(1.0, z))))
         self.inside = self.error <= self.settings.radius
         score = self.score

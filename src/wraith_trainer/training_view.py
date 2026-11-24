@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from math import radians, tan
+from pathlib import Path
 from random import Random
 from statistics import mean
 
@@ -9,11 +10,13 @@ import pygame
 
 from .dashboard import BLUE, CYAN, GREEN, GRID, MUTED, RED, TEXT, Dashboard
 from .diagnostics import Diagnostics
+from .flight import bearing, focal_length, project
 from .joystick import SIMULATOR
-from .training import TICK, Isolation, Mode, Pattern, Session, Settings, bearing, focal_length
+from .profile_view import ProfileView
+from .ship_profiles import ShipProfile
+from .training import TICK, Isolation, Mode, Pattern, Session, Settings
 
 FIELD = pygame.Rect(32, 132, 1216, 576)
-FOCAL = focal_length(FIELD.height)
 DESCRIPTIONS = {
     Mode.MICRO: "Acquire small nearby targets and hold the reticle steady.",
     Mode.TRACKING: "Follow one moving target for the full round.",
@@ -33,8 +36,10 @@ OPTIONS = {
 
 
 class TrainingView:
-    def __init__(self, ui: Dashboard) -> None:
+    def __init__(self, ui: Dashboard, profile_dir: Path, profile: ShipProfile | None) -> None:
         self.ui = ui
+        self.profiles = ProfileView(ui, profile_dir, profile)
+        self.profiles_open = False
         self.mode = Mode.MICRO
         self.settings = {mode: Settings.defaults(mode) for mode in Mode}
         sky = Random(52)
@@ -85,7 +90,13 @@ class TrainingView:
         ui.text("Precision training", 34, 70, MUTED)
         ui.clip_text(state.device.name, 747, 45, 267, MUTED)
         ui.button("diagnostics", "< Diagnostics", (1055, 35, 193, 38))
-        if session is None:
+        if self.profiles_open:
+            ui.button("profile_back", "< Training setup", (1055, 82, 193, 34))
+            self.profiles.draw()
+        elif session is None:
+            ui.button("profile_open", "Flight profiles", (1055, 82, 193, 34))
+            profile = self.profiles.profile
+            ui.clip_text(f"{profile.name}  /  {profile.fov:g}° vertical FOV", 34, 98, 500, CYAN)
             self.setup(state, unavailable)
         else:
             self.flight(session)
@@ -96,8 +107,13 @@ class TrainingView:
                 ui.button("training_setup", "Training setup", (1055, 82, 193, 34), selected=True)
         ui.line((32, 785), (1248, 785))
         if state.device.instance_id == SIMULATOR:
-            ui.text("W/S   Pitch down/up     A/D   Yaw     Shift   Fine input", 32, 804, MUTED)
-        ui.right("ESC   Diagnostics     SPACE   Start / end     F11   Fullscreen", 1248, 807)
+            ui.text("W/S  Pitch     A/D  Yaw     Q/E  Roll     Shift  Fine input", 32, 804, MUTED)
+        footer = (
+            "ESC  Training setup"
+            if self.profiles_open
+            else "ESC  Diagnostics    SPACE  Start / end"
+        )
+        ui.right(f"{footer}    F11  Fullscreen", 1248, 807)
         ui.present(screen)
 
     def setup(self, state: Diagnostics, unavailable: str) -> None:
@@ -174,8 +190,11 @@ class TrainingView:
         old_clip = canvas.get_clip()
         canvas.set_clip(FIELD.inflate(-4, -4))
         cx, cy = FIELD.center
+        camera = session.camera
+        basis = camera.basis()
+        focal = focal_length(FIELD.height, camera.profile.fov)
         for direction, brightness in self.stars:
-            pos = session.camera.projection(direction, FOCAL)
+            pos = project(direction, basis, focal)
             if pos is not None:
                 x, y = round(cx + pos[0]), round(cy + pos[1])
                 if FIELD.collidepoint(x, y):
@@ -186,12 +205,25 @@ class TrainingView:
             )
         pygame.draw.circle(canvas, TEXT, (cx, cy), 2)
         if session.target is not None:
-            self.target_marker(session)
+            self.target_marker(session, focal)
         canvas.set_clip(old_clip)
         ui.text(
-            f"HDG {session.camera.yaw % 360:05.1f}°    PITCH {session.camera.pitch:+05.1f}°",
+            f"HDG {camera.yaw % 360:05.1f}°    PITCH {camera.pitch:+05.1f}°"
+            + (f"    ROLL {camera.roll:+05.1f}°" if 2 in session.axes else ""),
             51,
             150,
+            MUTED,
+            "mono",
+        )
+        ui.clip_text(
+            f"{camera.profile.name}  /  {camera.profile.fov:g}° V-FOV", 51, 173, 280, MUTED
+        )
+        ui.text(
+            f"RATE   P {camera.pitch_rate:+.1f}   Y {camera.yaw_rate:+.1f}"
+            + (f"   R {camera.roll_rate:+.1f}" if 2 in session.axes else "")
+            + "  °/s",
+            51,
+            196,
             MUTED,
             "mono",
         )
@@ -209,16 +241,16 @@ class TrainingView:
                 pygame.draw.rect(canvas, GREEN, (51, 679, round(152 * hold), 5))
                 ui.text("Hold", 214, 672, GREEN)
 
-    def target_marker(self, session: Session) -> None:
+    def target_marker(self, session: Session, focal: float) -> None:
         target = session.target
         assert target is not None
         ui = self.ui
         cx, cy = FIELD.center
-        projected = session.camera.projection(target.direction, FOCAL)
+        projected = session.camera.projection(target.direction, focal)
         visible = FIELD.inflate(-46, -46)
         if projected and visible.collidepoint(cx + projected[0], cy + projected[1]):
             px, py = round(cx + projected[0]), round(cy + projected[1])
-            radius = round(FOCAL * tan(radians(session.settings.radius)))
+            radius = max(2, round(focal * tan(radians(session.settings.radius))))
             color = GREEN if session.inside else RED
             pygame.draw.circle(ui.canvas, color, (px, py), radius, 2)
             if abs(px - cx) > 3 or abs(py - cy) > 3:

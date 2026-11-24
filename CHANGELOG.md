@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Added assisted rotational dynamics with independent pitch, yaw, and roll rate limits, acceleration, braking, and response settings.
+- Added adjustable vertical field of view, optional roll, and a direct-response preset for Phase 2 comparisons.
+- Added a flight profile editor with JSON import and export, and four Star Citizen presets with unboosted rate limits from a dated SPViewer snapshot.
+
 ## 0.2.0
 
 - Added rotational aiming with a fixed reticle and four training drills.
